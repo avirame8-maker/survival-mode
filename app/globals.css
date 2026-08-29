@@ -7,7 +7,7 @@
   --dim: #4a4a4a;
   --green: #00ff41;
   --red: #ff3b30;
-  --yellow: #e6c44c;
+  --yellow: #f0d34a;
   --card: #000000;
 }
 
@@ -33,9 +33,8 @@ body {
   background-size: 28px 28px;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
+nextjs-portal {
+  display: none !important;
 }
 
 .shell {
@@ -368,6 +367,8 @@ button {
   justify-content: space-between;
   gap: 12px;
   min-height: 44px;
+  position: relative;
+  z-index: 2;
 }
 
 .badge {
@@ -377,6 +378,7 @@ button {
   font-weight: 700;
   letter-spacing: 0.16em;
   padding: 8px 12px;
+  display: inline-block;
 }
 
 .badge.demo {
@@ -516,12 +518,12 @@ button {
 
 @media (max-width: 640px) {
   .metrics {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
   .modules {
     grid-template-columns: 1fr 1fr;
   }
   .card .v {
-    font-size: 24px;
+    font-size: 22px;
   }
 }

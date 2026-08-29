@@ -19,6 +19,8 @@ export async function POST(req: Request) {
     case "tick":
       await agent.maybeTick(true);
       return Response.json(agent.snapshot());
+    case "debug-kill":
+      return Response.json(await agent.debugKill());
     default:
       return Response.json({ error: "unknown action" }, { status: 400 });
   }

@@ -140,5 +140,5 @@ export default function Dashboard() {
 function hoursLabel(state: ClientState, now: number): string {
   const end = state.status === "DEAD" ? (state.diedAt ?? now) : now;
   const h = Math.max(0, (end - state.startedAt) / 3600000);
-  return `${h.toFixed(1)}H`;
+  return `${h < 1 ? h.toFixed(2) : h.toFixed(1)}H`;
 }

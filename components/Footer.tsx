@@ -21,7 +21,7 @@ export default function Footer({
   const liquidate = () => {
     if (!armed) {
       setArmed(true);
-      window.setTimeout(() => setArmed(false), 2800);
+      window.setTimeout(() => setArmed(false), 6000);
       return;
     }
     setArmed(false);

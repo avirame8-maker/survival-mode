@@ -301,7 +301,18 @@ export class Agent {
         ...this.state.crypto.map((c) => (c.tape?.length ? c.tape.length : c.history.length)),
       );
       const replaying = this.state.demo && tapeLen > 10 && this.state.replayIndex < tapeLen - 1;
-      if (!bootstrap && !replaying) await this.refreshFeeds();
+      if (!bootstrap) {
+        if (replaying) {
+          try {
+            this.state.predictions = await fetchPredictions(this.state.predictions);
+            this.state.lastFeedAt = Date.now();
+          } catch {
+            /* keep last books */
+          }
+        } else {
+          await this.refreshFeeds();
+        }
+      }
 
       if (replaying) {
         this.state.crypto = applyReplayStep(this.state.crypto, this.state.replayIndex);
@@ -534,6 +545,15 @@ export class Agent {
     rt.lastNote = paused ? "manual pause" : "manual resume";
     const def = moduleDef(id);
     this.pushLog("control", `${def.name} ${paused ? "PAUSED" : "ACTIVE"}`, { moduleId: id });
+    this.persist();
+    this.emit();
+    return this.snapshot();
+  }
+
+  async debugKill() {
+    if (!this.state.demo) return this.snapshot();
+    this.markPositions();
+    this.kill("BALANCE $0.00 — SUBSCRIPTION CANCELLED — AGENT DEAD");
     this.persist();
     this.emit();
     return this.snapshot();
