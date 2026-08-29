@@ -35,9 +35,9 @@ export default function Footer({
       <div>
         <span className="badge">PAPER TRADING MODE</span>
         {demo ? (
-          <span className="badge demo">DEMO CYCLE</span>
+          <span className="badge cadence">DEMO CYCLE</span>
         ) : (
-          <span className="badge demo">
+          <span className="badge cadence">
             {cycleMs >= 60_000 ? `${Math.round(cycleMs / 60000)}M CYCLE` : `${cycleMs}MS CYCLE`}
           </span>
         )}

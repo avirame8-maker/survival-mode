@@ -11,7 +11,7 @@ export async function loadState(): Promise<AgentState | null> {
   try {
     const raw = await readFile(FILE, "utf8");
     const parsed = JSON.parse(raw) as AgentState;
-    if (!parsed || parsed.version !== 2) return null;
+    if (!parsed || parsed.version !== 3) return null;
     return parsed;
   } catch {
     return null;

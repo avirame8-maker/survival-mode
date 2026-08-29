@@ -416,7 +416,7 @@ nextjs-portal {
   display: inline-block;
 }
 
-.badge.demo {
+.badge.cadence {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--line);

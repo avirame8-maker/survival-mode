@@ -29,7 +29,7 @@ function envCycleMs(demo: boolean): number {
 
 function freshState(demo: boolean, cycleMs: number): AgentState {
   return {
-    version: 2,
+    version: 3,
     status: "ALIVE",
     demo,
     cycleMs,
@@ -209,7 +209,7 @@ export class Agent {
     if (!this.diskHydrated) {
       const saved = await loadState();
       this.diskHydrated = true;
-      if (saved && saved.cycle > 0 && saved.demo === envDemo()) {
+      if (saved && saved.demo === envDemo()) {
         saved.pid = process.pid;
         saved.demo = envDemo();
         saved.cycleMs = envCycleMs(saved.demo);
@@ -258,6 +258,9 @@ export class Agent {
         for (let i = 0; i < 8; i++) {
           await this.runCycle(true);
         }
+      } else if (!this.state.demo && this.state.lastCycleAt === 0) {
+        // Paper week: wait a full 15m cadence before the first trade cycle.
+        this.state.lastCycleAt = Date.now();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
