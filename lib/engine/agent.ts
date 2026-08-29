@@ -154,9 +154,14 @@ export class Agent {
     }
   }
 
-  private persist() {
+  private persist(): Promise<void> {
     const copy = this.state;
-    this.persistQ = this.persistQ.then(() => saveState(copy)).catch(() => undefined);
+    this.persistQ = this.persistQ
+      .then(() => saveState(copy))
+      .catch((err) => {
+        console.error("paper persist failed", err);
+      });
+    return this.persistQ;
   }
 
   private pushLog(
@@ -269,7 +274,7 @@ export class Agent {
     } finally {
       this.state.booting = false;
       this.state.ready = true;
-      this.persist();
+      await this.persist();
       this.emit();
     }
   }
@@ -281,6 +286,14 @@ export class Agent {
     const due = Date.now() - this.state.lastCycleAt >= this.state.cycleMs;
     if (!force && !due) return;
     await this.runCycle(false);
+  }
+
+  /** Cron / durable wake: boot feeds if needed, then run one paper cycle. */
+  async tickNow() {
+    await this.ensureRunning();
+    await this.maybeTick(true);
+    await this.persist();
+    return this.snapshot();
   }
 
   private async refreshFeeds() {

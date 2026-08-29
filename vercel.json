@@ -4,5 +4,11 @@
   "env": {
     "DEMO": "0",
     "CYCLE_MS": "900000"
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/tick",
+      "schedule": "*/15 * * * *"
+    }
+  ]
 }
