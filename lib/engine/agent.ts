@@ -283,6 +283,13 @@ export class Agent {
     await this.runCycle(false);
   }
 
+  /** Cron / durable wake: boot feeds if needed, then run one paper cycle. */
+  async tickNow() {
+    await this.ensureRunning();
+    await this.maybeTick(true);
+    return this.snapshot();
+  }
+
   private async refreshFeeds() {
     try {
       const [crypto, predictions] = await Promise.all([

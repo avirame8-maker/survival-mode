@@ -1,0 +1,26 @@
+# Hobby Vercel only allows a native cron once per day. This workflow is the
+# 15-minute wake so the paper week keeps trading when the phone is closed.
+name: paper-week-tick
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Run one paper cycle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TICK_URL: https://survival-mode-one.vercel.app/api/tick
+        run: |
+          set -euo pipefail
+          if [ -n "${CRON_SECRET:-}" ]; then
+            curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" "$TICK_URL" | head -c 2000
+          else
+            curl -fsS "$TICK_URL" | head -c 2000
+          fi
+          echo
