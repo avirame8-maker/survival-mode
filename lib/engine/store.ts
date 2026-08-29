@@ -28,7 +28,7 @@ async function loadBlob(): Promise<AgentState | null> {
   if (!blobEnabled()) return null;
   try {
     const result = await get(BLOB_PATH, { access: "private", useCache: false });
-    if (result.statusCode !== 200 || !result.stream) return null;
+    if (!result || result.statusCode !== 200 || !result.stream) return null;
     const raw = await new Response(result.stream).text();
     return parseState(raw);
   } catch {
