@@ -26,7 +26,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     let es: EventSource | null = null;
-    let poll: ReturnType<typeof setInterval> | undefined;
     let alive = true;
 
     const apply = (s: ClientState) => {
@@ -51,7 +50,7 @@ export default function Dashboard() {
       /* polling fallback */
     }
 
-    poll = setInterval(() => {
+    const poll = setInterval(() => {
       void fetch("/api/state")
         .then((r) => r.json())
         .then(apply)
@@ -108,7 +107,7 @@ export default function Dashboard() {
       <div className="main">
         <section className="panel">
           <div className="panel-h">
-            <span>// BALANCE HISTORY</span>
+            <span>{"// BALANCE HISTORY"}</span>
             <b>
               {hoursLabel(state, now)} / 48H
             </b>
@@ -119,7 +118,7 @@ export default function Dashboard() {
         </section>
         <section className="panel">
           <div className="panel-h">
-            <span>// ACTIVITY LOG</span>
+            <span>{"// ACTIVITY LOG"}</span>
             <b>{state.resolvedCount} RESOLVED</b>
           </div>
           <ActivityLog entries={state.log} />
@@ -128,6 +127,7 @@ export default function Dashboard() {
       <ModuleGrid modules={state.modules} onToggle={toggleMod} dead={state.status === "DEAD"} />
       <Footer
         demo={state.demo}
+        cycleMs={state.cycleMs}
         status={state.status}
         onPause={() => act(state.status === "PAUSED" ? "resume" : "pause")}
         onLiquidate={() => act("liquidate")}

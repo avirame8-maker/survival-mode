@@ -18,7 +18,7 @@ const g = globalThis as unknown as {
 };
 
 function envDemo(): boolean {
-  return process.env.DEMO !== "0";
+  return process.env.DEMO === "1";
 }
 
 function envCycleMs(demo: boolean): number {
@@ -29,7 +29,7 @@ function envCycleMs(demo: boolean): number {
 
 function freshState(demo: boolean, cycleMs: number): AgentState {
   return {
-    version: 1,
+    version: 3,
     status: "ALIVE",
     demo,
     cycleMs,
@@ -209,7 +209,7 @@ export class Agent {
     if (!this.diskHydrated) {
       const saved = await loadState();
       this.diskHydrated = true;
-      if (saved && saved.cycle > 0) {
+      if (saved && saved.demo === envDemo()) {
         saved.pid = process.pid;
         saved.demo = envDemo();
         saved.cycleMs = envCycleMs(saved.demo);
@@ -242,9 +242,14 @@ export class Agent {
       this.bootLine(`FEED polymarket gamma · ${predictions.length} live books`);
       this.bootLine("FV windows seeded (SMA20 / EMA5)");
       this.bootLine(`paper broker ready · capital ${this.state.initialCapital.toFixed(2)} USD`);
+      this.bootLine(
+        this.state.demo
+          ? "DEMO cadence · accelerated cycles"
+          : "PAPER WEEK · $50 · 15m cadence · no live money",
+      );
       this.bootLine("survival law armed · $200/mo from profits");
 
-      if (this.state.cycle === 0 && this.state.status === "ALIVE") {
+      if (this.state.demo && this.state.cycle === 0 && this.state.status === "ALIVE") {
         const depth = Math.min(
           12,
           Math.max(...this.state.crypto.map((c) => c.history.length), 12),
@@ -253,6 +258,9 @@ export class Agent {
         for (let i = 0; i < 8; i++) {
           await this.runCycle(true);
         }
+      } else if (!this.state.demo && this.state.lastCycleAt === 0) {
+        // Paper week: wait a full 15m cadence before the first trade cycle.
+        this.state.lastCycleAt = Date.now();
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

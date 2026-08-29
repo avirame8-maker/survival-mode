@@ -12,14 +12,17 @@ export default function BalanceChart({
   equity: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [box, setBox] = useState({ w: 860, h: 340 });
+  const [box, setBox] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const measure = () => {
       const r = el.getBoundingClientRect();
-      setBox({ w: Math.max(320, r.width), h: Math.max(180, r.height) });
+      setBox({
+        w: Math.max(1, Math.floor(r.width)),
+        h: Math.max(1, Math.floor(r.height)),
+      });
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -29,10 +32,11 @@ export default function BalanceChart({
 
   const w = box.w;
   const h = box.h;
-  const padL = 56;
-  const padR = 86;
-  const padT = 16;
-  const padB = 14;
+  const narrow = w > 0 && w < 520;
+  const padL = narrow ? 42 : 56;
+  const padR = narrow ? 22 : 72;
+  const padT = narrow ? 22 : 16;
+  const padB = 12;
   const innerW = Math.max(10, w - padL - padR);
   const innerH = Math.max(10, h - padT - padB);
   const vals = points.length ? points.map((p) => p.equity) : [equity];
@@ -59,60 +63,78 @@ export default function BalanceChart({
   const lastY = ys.at(-1) ?? padT + innerH / 2;
   const ticks: number[] = [];
   for (let i = 0; i <= 4; i++) ticks.push(min + ((max - min) * i) / 4);
+  const labelY = narrow ? Math.max(14, lastY - 12) : lastY + 4;
+  const labelX = narrow ? Math.min(lastX, w - 8) : Math.min(lastX + 10, w - 8);
 
   return (
-    <div ref={ref} style={{ width: "100%", height: "100%" }}>
-      <svg
-        width={w}
-        height={h}
-        viewBox={`0 0 ${w} ${h}`}
-        role="img"
-        aria-label="Balance history"
-      >
-        <defs>
-          <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#00ff41" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#00ff41" stopOpacity="0" />
-          </linearGradient>
-          <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="2.2" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        {ticks.map((v) => {
-          const y = padT + ((max - v) / (max - min)) * innerH;
-          return (
-            <g key={v.toFixed(4)}>
-              <line x1={padL} x2={w - padR} y1={y} y2={y} stroke="#1a1a1a" strokeWidth="1" />
-              <text x={8} y={y + 4} fill="#4a4a4a" fontSize="11" fontFamily="ui-monospace, monospace">
-                {usd(v, Math.abs(max - min) < 8 ? 2 : 0)}
-              </text>
-            </g>
-          );
-        })}
-        {points.length > 1 ? (
-          <path
-            d={`${d} L ${lastX} ${padT + innerH} L ${padL} ${padT + innerH} Z`}
-            fill="url(#eqFill)"
-          />
-        ) : null}
-        {d ? (
-          <path d={d} fill="none" stroke="#f5f5f5" strokeWidth="1.7" filter="url(#glow)" />
-        ) : null}
-        <circle cx={lastX} cy={lastY} r="5" fill="#000" stroke="#00ff41" strokeWidth="1.8" />
-        <text
-          x={Math.min(lastX + 10, w - padR + 8)}
-          y={lastY + 4}
-          fill="#00ff41"
-          fontSize="12"
-          fontFamily="ui-monospace, monospace"
+    <div ref={ref} className="chart-inner">
+      {w > 8 && h > 8 ? (
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${w} ${h}`}
+          preserveAspectRatio="none"
+          overflow="hidden"
+          role="img"
+          aria-label="Balance history"
         >
-          {usd(equity)}
-        </text>
-      </svg>
+          <defs>
+            <linearGradient id="eqFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#00ff41" stopOpacity="0.14" />
+              <stop offset="100%" stopColor="#00ff41" stopOpacity="0" />
+            </linearGradient>
+            <clipPath id="eqClip">
+              <rect x="0" y="0" width={w} height={h} />
+            </clipPath>
+          </defs>
+          <g clipPath="url(#eqClip)">
+          {ticks.map((v) => {
+            const y = padT + ((max - v) / (max - min)) * innerH;
+            return (
+              <g key={v.toFixed(4)}>
+                <line
+                  x1={padL}
+                  x2={w - padR}
+                  y1={y}
+                  y2={y}
+                  stroke="#1a1a1a"
+                  strokeWidth="1"
+                />
+                <text
+                  x={6}
+                  y={y + 4}
+                  fill="#4a4a4a"
+                  fontSize={narrow ? 9 : 11}
+                  fontFamily="ui-monospace, monospace"
+                >
+                  {usd(v, Math.abs(max - min) < 8 ? 2 : 0)}
+                </text>
+              </g>
+            );
+          })}
+          {points.length > 1 ? (
+            <path
+              d={`${d} L ${lastX} ${padT + innerH} L ${padL} ${padT + innerH} Z`}
+              fill="url(#eqFill)"
+            />
+          ) : null}
+          {d ? (
+            <path d={d} fill="none" stroke="#f5f5f5" strokeWidth="1.7" />
+          ) : null}
+          <circle cx={lastX} cy={lastY} r="5" fill="#000" stroke="#00ff41" strokeWidth="1.8" />
+          <text
+            x={labelX}
+            y={labelY}
+            textAnchor={narrow ? "end" : "start"}
+            fill="#00ff41"
+            fontSize={narrow ? 11 : 12}
+            fontFamily="ui-monospace, monospace"
+          >
+            {usd(equity)}
+          </text>
+          </g>
+        </svg>
+      ) : null}
     </div>
   );
 }
