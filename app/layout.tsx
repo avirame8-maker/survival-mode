@@ -14,6 +14,12 @@ export const metadata: Metadata = {
     "Paper-trading survival agent. $50 to start. Pay the $200/mo hosting from profits, or die at $0.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">

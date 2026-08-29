@@ -5,12 +5,14 @@ import type { AgentLife } from "@/lib/engine/types";
 
 export default function Footer({
   demo,
+  cycleMs,
   status,
   onPause,
   onLiquidate,
   onRespawn,
 }: {
   demo: boolean;
+  cycleMs: number;
   status: AgentLife;
   onPause: () => void;
   onLiquidate: () => void;
@@ -32,7 +34,13 @@ export default function Footer({
     <footer className="foot">
       <div>
         <span className="badge">PAPER TRADING MODE</span>
-        {demo ? <span className="badge demo">DEMO CYCLE</span> : null}
+        {demo ? (
+          <span className="badge demo">DEMO CYCLE</span>
+        ) : (
+          <span className="badge demo">
+            {cycleMs >= 60_000 ? `${Math.round(cycleMs / 60000)}M CYCLE` : `${cycleMs}MS CYCLE`}
+          </span>
+        )}
       </div>
       <div className="actions">
         {status === "DEAD" ? (

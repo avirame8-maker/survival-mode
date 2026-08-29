@@ -79,7 +79,7 @@ export interface PredictionBook {
 }
 
 export interface AgentState {
-  version: 1;
+  version: 2;
   status: AgentLife;
   demo: boolean;
   cycleMs: number;

@@ -13,10 +13,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Demo mode is on by default (about one cycle every 6 seconds, plus a short accelerated bootstrap so the log and chart are not empty on first load). For a 15-minute production cadence:
+Default cadence is a **15-minute paper week** (`DEMO=0`, `CYCLE_MS=900000`): $50 start, no live money, no API keys. For an accelerated dashboard while developing:
 
 ```bash
-DEMO=0 CYCLE_MS=900000 npm run dev
+DEMO=1 CYCLE_MS=6000 npm run dev
 ```
 
 ## What it does
