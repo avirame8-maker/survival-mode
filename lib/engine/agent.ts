@@ -154,9 +154,14 @@ export class Agent {
     }
   }
 
-  private persist() {
+  private persist(): Promise<void> {
     const copy = this.state;
-    this.persistQ = this.persistQ.then(() => saveState(copy)).catch(() => undefined);
+    this.persistQ = this.persistQ
+      .then(() => saveState(copy))
+      .catch((err) => {
+        console.error("paper persist failed", err);
+      });
+    return this.persistQ;
   }
 
   private pushLog(
@@ -269,7 +274,7 @@ export class Agent {
     } finally {
       this.state.booting = false;
       this.state.ready = true;
-      this.persist();
+      await this.persist();
       this.emit();
     }
   }
@@ -287,6 +292,7 @@ export class Agent {
   async tickNow() {
     await this.ensureRunning();
     await this.maybeTick(true);
+    await this.persist();
     return this.snapshot();
   }
 
