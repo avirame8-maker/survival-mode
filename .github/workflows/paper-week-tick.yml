@@ -1,5 +1,9 @@
 # Hobby Vercel only allows a native cron once per day. This workflow is the
 # 15-minute wake so the paper week keeps trading when the phone is closed.
+#
+# GitHub may delay scheduled jobs (often by hours). The previous job also
+# failed after a successful tick: `curl | head -c 2000` closed the pipe and
+# curl exited 23 (SIGPIPE) under `pipefail`.
 name: paper-week-tick
 
 on:
@@ -7,10 +11,14 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: paper-week-tick
+  cancel-in-progress: false
+
 jobs:
   tick:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - name: Run one paper cycle
         env:
@@ -18,9 +26,20 @@ jobs:
           TICK_URL: https://survival-mode-one.vercel.app/api/tick
         run: |
           set -euo pipefail
+          AUTH=()
           if [ -n "${CRON_SECRET:-}" ]; then
-            curl -fsS -H "Authorization: Bearer ${CRON_SECRET}" "$TICK_URL" | head -c 2000
-          else
-            curl -fsS "$TICK_URL" | head -c 2000
+            AUTH=(-H "Authorization: Bearer ${CRON_SECRET}")
           fi
-          echo
+          # Write the body to a file. Never pipe curl into head: that yields
+          # curl exit 23 even when /api/tick already ran the paper cycle.
+          code=$(curl -sS --retry 4 --retry-all-errors --retry-delay 8 --max-time 90 \
+            -o "$RUNNER_TEMP/tick.json" -w "%{http_code}" \
+            "${AUTH[@]}" "${TICK_URL}?summary=1")
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tick.json"
+          d = json.loads(p.read_text())
+          keys = ("status", "demo", "cycleMs", "cycle", "cash", "equity", "lastCycleAt")
+          print({k: d.get(k) for k in keys})
+          PY
+          test "$code" = "200"

@@ -19,7 +19,21 @@ async function tick(req: Request) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
   const agent = getAgent();
-  return Response.json(await agent.tickNow());
+  const snap = await agent.tickNow();
+  const url = new URL(req.url);
+  if (url.searchParams.get("summary") === "1") {
+    return Response.json({
+      status: snap.status,
+      demo: snap.demo,
+      cycleMs: snap.cycleMs,
+      cycle: snap.cycle,
+      cash: snap.cash,
+      equity: snap.equity,
+      lastCycleAt: snap.lastCycleAt,
+      positions: snap.positions.length,
+    });
+  }
+  return Response.json(snap);
 }
 
 export async function GET(req: Request) {
