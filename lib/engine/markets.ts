@@ -1,4 +1,4 @@
-import type { CryptoBook, CryptoSymbol, PredictionBook } from "./types";
+import type { CryptoBar, CryptoBook, CryptoSymbol, PredictionBook } from "./types";
 import { MAX_HISTORY, MAX_PRED } from "./modules";
 import { num, parseJsonArray } from "./math";
 
@@ -47,7 +47,7 @@ async function krakenTickers(): Promise<Record<CryptoSymbol, number> | null> {
   }
 }
 
-async function krakenOhlc(symbol: CryptoSymbol, interval = 15): Promise<number[] | null> {
+async function krakenOhlc(symbol: CryptoSymbol, interval = 15): Promise<CryptoBar[] | null> {
   try {
     const pair = KRAKEN_PAIRS[symbol];
     const json = (await getJson(
@@ -56,13 +56,17 @@ async function krakenOhlc(symbol: CryptoSymbol, interval = 15): Promise<number[]
     if (!json.result) return null;
     const rows = krakenResultKey(json.result, pair);
     if (!Array.isArray(rows)) return null;
-    const closes: number[] = [];
+    const bars: CryptoBar[] = [];
     for (const row of rows) {
       if (!Array.isArray(row)) continue;
       const close = num(row[4]);
-      if (close > 0) closes.push(close);
+      const high = num(row[2]);
+      const volume = num(row[6]);
+      if (close > 0) bars.push({ close, high: high > 0 ? high : close, volume });
     }
-    return closes.length ? closes.slice(-MAX_HISTORY) : null;
+    // Last Kraken candle is the in-progress 15m bar — breakout uses completed bars only.
+    if (bars.length > 2) bars.pop();
+    return bars.length ? bars.slice(-MAX_HISTORY) : null;
   } catch {
     return null;
   }
@@ -92,7 +96,7 @@ async function coingeckoTickers(): Promise<Record<CryptoSymbol, number> | null> 
   }
 }
 
-async function coingeckoHistory(symbol: CryptoSymbol): Promise<number[] | null> {
+async function coingeckoHistory(symbol: CryptoSymbol): Promise<CryptoBar[] | null> {
   try {
     const id = CG_IDS[symbol];
     const json = (await getJson(
@@ -100,12 +104,19 @@ async function coingeckoHistory(symbol: CryptoSymbol): Promise<number[] | null> 
       12000,
     )) as { prices?: [number, number][] };
     const prices = json.prices ?? [];
-    const closes = prices.map((p) => num(p[1])).filter((n) => n > 0);
-    if (!closes.length) return null;
-    const step = Math.max(1, Math.floor(closes.length / MAX_HISTORY));
-    const sampled: number[] = [];
-    for (let i = 0; i < closes.length; i += step) sampled.push(closes[i]);
-    return sampled.slice(-MAX_HISTORY);
+    const buckets = new Map<number, CryptoBar>();
+    for (const row of prices) {
+      const ts = num(row[0]);
+      const px = num(row[1]);
+      if (!(px > 0)) continue;
+      const bucket = Math.floor(ts / (15 * 60 * 1000));
+      const prev = buckets.get(bucket);
+      if (!prev) buckets.set(bucket, { close: px, high: px, volume: 0 });
+      else buckets.set(bucket, { close: px, high: Math.max(prev.high, px), volume: 0 });
+    }
+    const bars = [...buckets.values()];
+    if (!bars.length) return null;
+    return bars.slice(-MAX_HISTORY);
   } catch {
     return null;
   }
@@ -226,13 +237,15 @@ export async function fetchCrypto(prev: CryptoBook[]): Promise<CryptoBook[]> {
 
   return symbols.map((symbol) => {
     const old = prevMap.get(symbol);
-    const histTuple = histories.find((h) => h[0] === symbol)?.[1];
-    let history = histTuple && histTuple.length ? [...histTuple] : [...(old?.history ?? [])];
+    const fetched = histories.find((h) => h[0] === symbol)?.[1];
+    const bars =
+      fetched && fetched.length ? [...fetched] : [...(old?.bars ?? [])];
+    let history = bars.length ? bars.map((b) => b.close) : [...(old?.history ?? [])];
     const price = tickers[symbol] ?? old?.price ?? history.at(-1) ?? 0;
     if (price > 0 && history.at(-1) !== price) history.push(price);
     history = history.slice(-MAX_HISTORY);
     const tape = history;
-    return { symbol, price, history, tape };
+    return { symbol, price, history, tape, bars: bars.slice(-MAX_HISTORY) };
   });
 }
 
@@ -247,6 +260,7 @@ export function applyReplayStep(books: CryptoBook[], index: number): CryptoBook[
       tape,
       price: tape[i],
       history: visible.length >= 5 ? visible : tape,
+      bars: b.bars ?? [],
     };
   });
 }

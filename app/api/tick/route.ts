@@ -26,6 +26,7 @@ async function tick(req: Request) {
       status: snap.status,
       demo: snap.demo,
       cycleMs: snap.cycleMs,
+      paperWeek: snap.paperWeek,
       cycle: snap.cycle,
       cash: snap.cash,
       equity: snap.equity,

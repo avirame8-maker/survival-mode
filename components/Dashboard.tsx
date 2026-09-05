@@ -128,6 +128,7 @@ export default function Dashboard() {
       <Footer
         demo={state.demo}
         cycleMs={state.cycleMs}
+        paperWeek={state.paperWeek}
         status={state.status}
         onPause={() => act(state.status === "PAUSED" ? "resume" : "pause")}
         onLiquidate={() => act("liquidate")}

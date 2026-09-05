@@ -4,8 +4,12 @@ import {
   MAX_CURVE,
   MAX_LOG,
   MODULES,
+  PAPER_WEEK,
+  STATE_VERSION,
   SUBSCRIPTION_MONTHLY,
+  isPredictionModule,
   moduleDef,
+  moduleStartsPaused,
 } from "./modules";
 import { round2, uid, uptimeLabel } from "./math";
 import { loadState, saveState } from "./store";
@@ -29,7 +33,8 @@ function envCycleMs(demo: boolean): number {
 
 function freshState(demo: boolean, cycleMs: number): AgentState {
   return {
-    version: 3,
+    version: STATE_VERSION,
+    paperWeek: PAPER_WEEK,
     status: "ALIVE",
     demo,
     cycleMs,
@@ -45,16 +50,19 @@ function freshState(demo: boolean, cycleMs: number): AgentState {
     wins: 0,
     losses: 0,
     resolvedCount: 0,
-    modules: MODULES.map((m) => ({
-      id: m.id,
-      paused: false,
-      autoPaused: false,
-      realizedPnl: 0,
-      trades: 0,
-      wins: 0,
-      losses: 0,
-      lastNote: "",
-    })),
+    modules: MODULES.map((m) => {
+      const paused = moduleStartsPaused(m);
+      return {
+        id: m.id,
+        paused,
+        autoPaused: false,
+        realizedPnl: 0,
+        trades: 0,
+        wins: 0,
+        losses: 0,
+        lastNote: paused ? "paused — Polymarket owned by another agent" : "",
+      };
+    }),
     positions: [],
     log: [],
     equityCurve: [],
@@ -105,6 +113,7 @@ export class Agent {
       status: s.status,
       demo: s.demo,
       cycleMs: s.cycleMs,
+      paperWeek: s.paperWeek ?? PAPER_WEEK,
       startedAt: s.startedAt,
       diedAt: s.diedAt,
       pid: s.pid,
@@ -224,6 +233,7 @@ export class Agent {
           ...c,
           tape: c.tape?.length ? c.tape : c.history ?? [],
           history: c.history ?? [],
+          bars: c.bars ?? [],
         }));
         this.state = saved;
       }
@@ -233,24 +243,30 @@ export class Agent {
     this.emit();
     try {
       this.bootLine("loading public price feeds…");
+      const predOn = this.predictionActive();
       const [crypto, predictions] = await Promise.all([
         fetchCrypto(this.state.crypto),
-        fetchPredictions(this.state.predictions),
+        predOn ? fetchPredictions(this.state.predictions) : Promise.resolve([]),
       ]);
       this.state.crypto = crypto;
       this.state.predictions = predictions;
       this.state.lastFeedAt = Date.now();
       this.state.feedError = null;
+      const btcBars = crypto.find((c) => c.symbol === "BTC")?.bars.length ?? 0;
       this.bootLine(
-        `FEED kraken/coingecko · BTC ${crypto.find((c) => c.symbol === "BTC")?.price.toFixed(0) ?? "—"}`,
+        `FEED kraken/coingecko · BTC ${crypto.find((c) => c.symbol === "BTC")?.price.toFixed(0) ?? "—"} · ${btcBars}×15m bars`,
       );
-      this.bootLine(`FEED polymarket gamma · ${predictions.length} live books`);
-      this.bootLine("FV windows seeded (SMA20 / EMA5)");
+      if (predOn) {
+        this.bootLine(`FEED polymarket gamma · ${predictions.length} live books`);
+      } else {
+        this.bootLine("BRAM/RIGO paused — Polymarket owned by another agent");
+      }
+      this.bootLine("BOLT armed · BTC 15m breakout · 3 closes above resistance");
       this.bootLine(`paper broker ready · capital ${this.state.initialCapital.toFixed(2)} USD`);
       this.bootLine(
         this.state.demo
           ? "DEMO cadence · accelerated cycles"
-          : "PAPER WEEK · $50 · 15m cadence · no live money",
+          : `PAPER WEEK ${this.state.paperWeek} · $50 · 15M CYCLE · no live money`,
       );
       this.bootLine("survival law armed · $200/mo from profits");
 
@@ -296,14 +312,19 @@ export class Agent {
     return this.snapshot();
   }
 
+  private predictionActive(): boolean {
+    return this.state.modules.some((m) => isPredictionModule(m.id) && !m.paused);
+  }
+
   private async refreshFeeds() {
     try {
+      const predOn = this.predictionActive();
       const [crypto, predictions] = await Promise.all([
         fetchCrypto(this.state.crypto),
-        fetchPredictions(this.state.predictions),
+        predOn ? fetchPredictions(this.state.predictions) : Promise.resolve([]),
       ]);
       this.state.crypto = crypto;
-      this.state.predictions = predictions;
+      this.state.predictions = predOn ? predictions : [];
       this.state.lastFeedAt = Date.now();
       this.state.feedError = null;
     } catch (err) {
@@ -324,11 +345,13 @@ export class Agent {
       const replaying = this.state.demo && tapeLen > 10 && this.state.replayIndex < tapeLen - 1;
       if (!bootstrap) {
         if (replaying) {
-          try {
-            this.state.predictions = await fetchPredictions(this.state.predictions);
-            this.state.lastFeedAt = Date.now();
-          } catch {
-            /* keep last books */
+          if (this.predictionActive()) {
+            try {
+              this.state.predictions = await fetchPredictions(this.state.predictions);
+              this.state.lastFeedAt = Date.now();
+            } catch {
+              /* keep last books */
+            }
           }
         } else {
           await this.refreshFeeds();
@@ -397,6 +420,16 @@ export class Agent {
       if (ret <= -p.stopPct) why = "STOP";
       else if (ret >= p.takePct) why = "TARGET";
       else if (held >= p.maxHold) why = "TIME";
+      if (
+        !why &&
+        !p.partialTaken &&
+        p.firstTargetPct &&
+        ret >= p.firstTargetPct
+      ) {
+        this.settlePartial(p, mark);
+        keep.push(p);
+        continue;
+      }
       if (!why) {
         keep.push(p);
         continue;
@@ -426,6 +459,29 @@ export class Agent {
     this.pushLog("scan", `${def.name} ${why} · ${p.label.slice(0, 48)}`, { moduleId: p.moduleId });
   }
 
+  private settlePartial(p: Position, mark: number) {
+    const halfQty = p.qty / 2;
+    const halfNotional = p.notional / 2;
+    const realized = round2(unrealized(p.entry, mark, halfQty, p.side));
+    this.state.cash = round2(this.state.cash + halfNotional + realized);
+    this.state.resolvedCount += 1;
+    const rt = this.moduleRt(p.moduleId);
+    rt.realizedPnl = round2(rt.realizedPnl + realized);
+    p.qty = halfQty;
+    p.notional = round2(halfNotional);
+    p.partialTaken = true;
+    p.stopPct = 0.001;
+    const def = moduleDef(p.moduleId);
+    this.pushLog("resolved", `PARTIAL ${realized >= 0 ? "+" : "-"}$${Math.abs(realized).toFixed(2)}`, {
+      amount: realized,
+      moduleId: p.moduleId,
+    });
+    this.pushLog("scan", `${def.name} PARTIAL · stop → BE · ${p.label.slice(0, 40)}`, {
+      moduleId: p.moduleId,
+    });
+    rt.lastNote = "partial TP · stop to breakeven";
+  }
+
   private maybePaySubscription(equity: number) {
     const profit = Math.max(0, equity - this.state.initialCapital);
     if (profit <= 0) return;
@@ -452,7 +508,7 @@ export class Agent {
       ilsa.lastNote = "ETH bleeding — withdrew";
       this.pushLog(
         "system",
-        "ETH bleeding — ILSA withdrew, rotating capital into BTC DIP (BOLT)",
+        "ETH bleeding — ILSA withdrew, rotating capital into BTC BREAKOUT (BOLT)",
         { moduleId: "ilsa" },
       );
     }
@@ -471,7 +527,8 @@ export class Agent {
       if (room < 2.5) break;
       const signal = evaluateModule(mod.id, this.state, equity, boostBolt);
       if (!signal) continue;
-      const notional = round2(Math.min(signal.notional, room, this.state.cash * 0.9, equity * 0.18));
+      const capFrac = signal.moduleId === "bolt" ? 0.06 : 0.18;
+      const notional = round2(Math.min(signal.notional, room, this.state.cash * 0.9, equity * capFrac));
       if (notional < 2.2 || this.state.cash < notional + 1.5) continue;
       const qty = signal.entry > 0 ? notional / signal.entry : 0;
       if (qty <= 0) continue;
@@ -491,6 +548,8 @@ export class Agent {
         maxHold: signal.maxHold,
         stopPct: signal.stopPct,
         takePct: signal.takePct,
+        firstTargetPct: signal.firstTargetPct,
+        partialTaken: false,
         reason: signal.reason,
       };
       this.state.positions.push(pos);

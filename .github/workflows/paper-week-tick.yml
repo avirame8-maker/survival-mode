@@ -39,7 +39,7 @@ jobs:
           import json, os, pathlib
           p = pathlib.Path(os.environ["RUNNER_TEMP"]) / "tick.json"
           d = json.loads(p.read_text())
-          keys = ("status", "demo", "cycleMs", "cycle", "cash", "equity", "lastCycleAt")
+          keys = ("status", "demo", "cycleMs", "paperWeek", "cycle", "cash", "equity", "lastCycleAt")
           print({k: d.get(k) for k in keys})
           PY
           test "$code" = "200"

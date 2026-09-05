@@ -22,9 +22,10 @@ DEMO=1 CYCLE_MS=6000 npm run dev
 ## What it does
 
 - Pulls **real** BTC / ETH / SOL / DOGE marks from public Kraken (CoinGecko fallback) and **real** event books from the public Polymarket Gamma API.
-- Each module has its own flavor: BTC dip (BOLT), weather/prediction fade (BRAM), ETH momentum (ILSA), mean reversion (KETT), macro events (RIGO), alts scalping (TESS).
-- Fair value is a short EMA vs a longer SMA. Trades open only when the gap clears a threshold; size scales with gap size and a simple reliability score (inverse recent volatility).
-- If ETH is bleeding, ILSA can auto-pause and the book rotates toward BTC dips — the same survival pivot the original post described.
+- Each module has its own flavor: BTC 15m breakout (BOLT), weather/prediction fade (BRAM, paused), ETH momentum (ILSA), mean reversion (KETT), macro events (RIGO, paused), alts scalping (TESS, secondary).
+- **BOLT** goes long only after three consecutive completed 15-minute closes above a recent resistance (prior local high). Volume confirmation is used when Kraken provides it; otherwise the three closes are enough. Size is capped at ~5.5% of equity, with a ~1% hard stop, partial take near +1% (stop to breakeven), and a ~2% target.
+- Fair value (EMA vs SMA) still drives ILSA / KETT / TESS. Prediction modules stay in the grid but start paused — Polymarket is owned by another agent.
+- If ETH is bleeding, ILSA can auto-pause and the book rotates toward BTC breakouts.
 - 20% of **profits** (capped at $200) is reserved for the simulated hosting subscription.
 - State is saved to `data/agent-state.json` so a refresh does not wipe the run.
 - **Pause Agent**, per-module pause, **Emergency Liquidate**, and **Respawn** after death. Always marked **PAPER TRADING MODE**.
