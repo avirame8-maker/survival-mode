@@ -6,6 +6,7 @@ import type { AgentLife } from "@/lib/engine/types";
 export default function Footer({
   demo,
   cycleMs,
+  paperWeek,
   status,
   onPause,
   onLiquidate,
@@ -13,6 +14,7 @@ export default function Footer({
 }: {
   demo: boolean;
   cycleMs: number;
+  paperWeek: number;
   status: AgentLife;
   onPause: () => void;
   onLiquidate: () => void;
@@ -32,8 +34,8 @@ export default function Footer({
 
   return (
     <footer className="foot">
-      <div>
-        <span className="badge">PAPER TRADING MODE</span>
+      <div className="badges">
+        <span className="badge">PAPER TRADING</span>
         {demo ? (
           <span className="badge cadence">DEMO CYCLE</span>
         ) : (
@@ -41,6 +43,8 @@ export default function Footer({
             {cycleMs >= 60_000 ? `${Math.round(cycleMs / 60000)}M CYCLE` : `${cycleMs}MS CYCLE`}
           </span>
         )}
+        <span className="badge cadence">WEEK {paperWeek}</span>
+        <span className="badge cadence">NO LIVE MONEY</span>
       </div>
       <div className="actions">
         {status === "DEAD" ? (

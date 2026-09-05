@@ -1,11 +1,15 @@
 import type { ModuleDef } from "./types";
 
+export const STATE_VERSION = 4 as const;
+export const PAPER_WEEK = 2;
 export const INITIAL_CAPITAL = 50;
 export const SUBSCRIPTION_MONTHLY = 200;
 export const MAX_LOG = 180;
 export const MAX_CURVE = 360;
 export const MAX_HISTORY = 64;
 export const MAX_PRED = 36;
+/** Hard cap on BOLT breakout size vs equity. */
+export const BREAKOUT_MAX_FRAC = 0.055;
 
 export const MODULES: ModuleDef[] = [
   {
@@ -13,8 +17,8 @@ export const MODULES: ModuleDef[] = [
     idx: "01",
     name: "BOLT",
     color: "#2AD4C0",
-    strategy: "BTC DIP",
-    flavor: "btc-dip",
+    strategy: "BTC BREAKOUT",
+    flavor: "btc-breakout",
   },
   {
     id: "bram",
@@ -60,4 +64,12 @@ export const MODULES: ModuleDef[] = [
 
 export function moduleDef(id: string): ModuleDef {
   return MODULES.find((m) => m.id === id) ?? MODULES[0];
+}
+
+export function moduleStartsPaused(m: ModuleDef): boolean {
+  return m.flavor === "prediction" || m.flavor === "macro";
+}
+
+export function isPredictionModule(id: string): boolean {
+  return id === "bram" || id === "rigo";
 }

@@ -1,6 +1,7 @@
 import type { AgentState, CryptoBook, PredictionBook, Signal } from "./types";
 import { MODULES } from "./modules";
 import { clamp, ema, gapVsFair, reliability, sma } from "./math";
+import { evaluateBtcBreakout } from "./breakout";
 
 function crypto(state: AgentState, symbol: string): CryptoBook | undefined {
   return state.crypto.find((c) => c.symbol === symbol);
@@ -50,24 +51,13 @@ export function evaluateModule(
   if (!def) return null;
 
   switch (def.flavor) {
-    case "btc-dip": {
-      const b = fairBundle(crypto(state, "BTC"));
-      if (!b) return null;
-      if (b.gap > -0.0022) return null;
-      const notional = sizeFor(equity, b.gap, b.rel, 0.11, boostBolt);
-      return {
-        moduleId,
-        venue: "crypto",
-        symbol: "BTC",
-        label: "BTC-USD DIP",
-        side: 1,
-        notional,
-        entry: b.price,
-        maxHold: 4,
-        stopPct: 0.07,
-        takePct: 0.045,
-        reason: `gap ${ (b.gap * 100).toFixed(2) }% vs FV ${b.fair.toFixed(0)} · rel ${b.rel.toFixed(2)}`,
-      };
+    case "btc-breakout": {
+      const signal = evaluateBtcBreakout(crypto(state, "BTC"), equity, moduleId);
+      if (!signal) return null;
+      if (boostBolt > 1) {
+        signal.notional = clamp(signal.notional * Math.min(boostBolt, 1.15), 2.2, equity * 0.06);
+      }
+      return signal;
     }
     case "eth-momentum": {
       const b = fairBundle(crypto(state, "ETH"));
@@ -132,7 +122,7 @@ export function evaluateModule(
         .sort((a, b) => Math.abs(b.b.gap) - Math.abs(a.b.gap))[0];
       if (!cand || Math.abs(cand.b.gap) < 0.003) return null;
       const side: 1 | -1 = cand.b.gap > 0 ? -1 : 1;
-      const notional = sizeFor(equity, cand.b.gap, cand.b.rel, 0.07);
+      const notional = sizeFor(equity, cand.b.gap, cand.b.rel, 0.05);
       return {
         moduleId,
         venue: "crypto",
@@ -209,7 +199,8 @@ export function unrealized(entry: number, mark: number, qty: number, side: 1 | -
 
 export function scanNotes(state: AgentState): string[] {
   const notes: string[] = [];
-  const btc = fairBundle(crypto(state, "BTC"));
+  const btcBook = crypto(state, "BTC");
+  const btc = fairBundle(btcBook);
   const eth = fairBundle(crypto(state, "ETH"));
   if (btc) {
     notes.push(
@@ -221,12 +212,17 @@ export function scanNotes(state: AgentState): string[] {
       `ETH last ${eth.price.toFixed(2)} · FV ${eth.fair.toFixed(2)} · gap ${(eth.gap * 100).toFixed(2)}%`,
     );
   }
-  const rain = state.predictions.filter((p) => p.category === "weather");
-  if (rain.length) notes.push(`Pricing ${rain.length} NOAA-linked rain markets…`);
-  const macro = state.predictions.filter((p) => p.category === "macro");
-  if (macro.length) {
-    const top = macro[0];
-    notes.push(`Macro tape: "${top.question.slice(0, 42)}" yes=${top.yes.toFixed(3)}`);
+  const predOn = state.modules.some(
+    (m) => (m.id === "bram" || m.id === "rigo") && !m.paused,
+  );
+  if (predOn) {
+    const rain = state.predictions.filter((p) => p.category === "weather");
+    if (rain.length) notes.push(`Pricing ${rain.length} NOAA-linked rain markets…`);
+    const macro = state.predictions.filter((p) => p.category === "macro");
+    if (macro.length) {
+      const top = macro[0];
+      notes.push(`Macro tape: "${top.question.slice(0, 42)}" yes=${top.yes.toFixed(3)}`);
+    }
   }
   return notes;
 }

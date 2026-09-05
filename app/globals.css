@@ -406,6 +406,13 @@ nextjs-portal {
   z-index: 2;
 }
 
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .badge {
   background: #fff;
   color: #000;
@@ -418,10 +425,9 @@ nextjs-portal {
 
 .badge.cadence {
   background: transparent;
-  color: var(--muted);
-  border: 1px solid var(--line);
-  margin-left: 8px;
-  font-weight: 500;
+  color: #c8c8c8;
+  border: 1px solid #3a3a3a;
+  font-weight: 600;
 }
 
 .actions {

@@ -9,7 +9,7 @@ export interface ModuleDef {
   color: string;
   strategy: string;
   flavor:
-    | "btc-dip"
+    | "btc-breakout"
     | "prediction"
     | "eth-momentum"
     | "mean-reversion"
@@ -44,6 +44,8 @@ export interface Position {
   maxHold: number;
   stopPct: number;
   takePct: number;
+  firstTargetPct?: number;
+  partialTaken?: boolean;
   reason: string;
 }
 
@@ -62,11 +64,18 @@ export interface EquityPoint {
   equity: number;
 }
 
+export interface CryptoBar {
+  close: number;
+  high: number;
+  volume: number;
+}
+
 export interface CryptoBook {
   symbol: CryptoSymbol;
   price: number;
   history: number[];
   tape: number[];
+  bars: CryptoBar[];
 }
 
 export interface PredictionBook {
@@ -79,7 +88,8 @@ export interface PredictionBook {
 }
 
 export interface AgentState {
-  version: 3;
+  version: 4;
+  paperWeek: number;
   status: AgentLife;
   demo: boolean;
   cycleMs: number;
@@ -113,6 +123,7 @@ export interface ClientState {
   status: AgentLife;
   demo: boolean;
   cycleMs: number;
+  paperWeek: number;
   startedAt: number;
   diedAt: number | null;
   pid: number;
@@ -159,5 +170,6 @@ export interface Signal {
   maxHold: number;
   stopPct: number;
   takePct: number;
+  firstTargetPct?: number;
   reason: string;
 }

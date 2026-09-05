@@ -16,6 +16,9 @@ export default function Header({ state, now }: { state: ClientState; now: number
       </div>
       <div className="meta">
         <span>
+          WEEK<b>{state.paperWeek}</b>
+        </span>
+        <span>
           UPTIME<b>{uptimeLabel(state.startedAt, end)}</b>
         </span>
         <span>
