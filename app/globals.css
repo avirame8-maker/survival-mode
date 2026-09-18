@@ -430,6 +430,12 @@ nextjs-portal {
   font-weight: 600;
 }
 
+.badge.last-chance {
+  color: #9a9a9a;
+  border-color: #2e2e2e;
+  letter-spacing: 0.18em;
+}
+
 .actions {
   display: flex;
   gap: 10px;

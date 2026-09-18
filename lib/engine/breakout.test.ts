@@ -2,27 +2,35 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CryptoBar, CryptoBook } from "./types";
 import {
+  BREAKOUT_LOOKBACK,
   BREAKOUT_MAX_EXTENSION,
-  breakoutLong,
+  BREAKOUT_VOL_SPIKE,
   completedBars,
+  diagnoseBreakout,
   evaluateBtcBreakout,
+  formatBreakoutSkip,
   priorResistance,
   sizeBreakout,
-  volumeConfirming,
+  volumeRatio,
 } from "./breakout";
 
 function barsFrom(
   closes: number[],
-  opts?: { highs?: number[]; volumes?: number[] },
+  opts?: { highs?: number[]; lows?: number[]; opens?: number[]; volumes?: number[] },
 ): CryptoBar[] {
   return closes.map((close, i) => ({
     close,
     high: opts?.highs?.[i] ?? close,
+    low: opts?.lows?.[i] ?? close,
+    open: opts?.opens?.[i] ?? close,
     volume: opts?.volumes?.[i] ?? 0,
   }));
 }
 
-function book(closes: number[], extras?: { highs?: number[]; volumes?: number[]; price?: number }): CryptoBook {
+function book(
+  closes: number[],
+  extras?: { highs?: number[]; lows?: number[]; opens?: number[]; volumes?: number[]; price?: number },
+): CryptoBook {
   const completed = barsFrom(closes, extras);
   return {
     symbol: "BTC",
@@ -37,49 +45,95 @@ function range(n: number, start: number, step = 0): number[] {
   return Array.from({ length: n }, (_, i) => start + i * step);
 }
 
+/** 8-bar range with a local high inside the lookback window. */
+function priorWithHigh(high = 120, base = 100): number[] {
+  const prior = range(BREAKOUT_LOOKBACK, base);
+  prior[4] = high;
+  return prior;
+}
+
 describe("BTC 15m breakout", () => {
-  it("needs lookback + 3 confirm bars before a resistance exists", () => {
-    assert.equal(priorResistance(barsFrom(range(10, 100))), null);
+  it("needs lookback + 2 confirm bars before a resistance exists", () => {
+    assert.equal(priorResistance(barsFrom(range(8, 100))), null);
+    assert.equal(priorResistance(barsFrom(range(9, 100))), null);
   });
 
-  it("uses the prior local high as resistance (excludes the last 3 bars)", () => {
-    const prior = range(16, 100);
-    prior[7] = 120;
-    const last3 = [121, 122, 123];
-    assert.equal(priorResistance(barsFrom([...prior, ...last3])), 120);
+  it("uses the prior local high as resistance (excludes the last 2 bars)", () => {
+    const prior = priorWithHigh(120);
+    const last2 = [121, 122];
+    assert.equal(priorResistance(barsFrom([...prior, ...last2])), 120);
   });
 
-  it("enters long only after three consecutive closes above resistance", () => {
-    const prior = range(16, 100);
-    prior[7] = 120;
-    assert.equal(breakoutLong(barsFrom([...prior, 119, 121, 122])), null);
-    assert.equal(breakoutLong(barsFrom([...prior, 121, 119, 122])), null);
-    const hit = breakoutLong(barsFrom([...prior, 121, 122, 123]));
-    assert.ok(hit);
-    assert.equal(hit.resistance, 120);
-    assert.equal(hit.volumeUsed, false);
+  it("enters long after two consecutive closes above resistance", () => {
+    const prior = priorWithHigh(120);
+    const miss = diagnoseBreakout(book([...prior, 119, 121]));
+    assert.equal(miss.ok, false);
+    const hit = diagnoseBreakout(book([...prior, 121, 122]));
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.resistance, 120);
+      assert.equal(hit.mode, "two-close");
+      assert.equal(hit.volumeUsed, false);
+    }
   });
 
-  it("requires confirming volume when volume is present", () => {
-    const prior = range(16, 100);
-    prior[7] = 120;
-    const closes = [...prior, 121, 122, 123];
-    const weakVol = [...range(16, 100, 0), 10, 10, 10];
-    assert.equal(breakoutLong(barsFrom(closes, { volumes: weakVol })), null);
-
-    const strongVol = [...range(16, 40, 0), 50, 55, 80];
-    const hit = breakoutLong(barsFrom(closes, { volumes: strongVol }));
-    assert.ok(hit);
-    assert.equal(hit.volumeUsed, true);
+  it("does not require volume confirmation on the two-close path", () => {
+    const prior = priorWithHigh(120);
+    const closes = [...prior, 121, 122];
+    const weakVol = [...range(BREAKOUT_LOOKBACK, 40, 0), 8, 8];
+    const hit = diagnoseBreakout(book(closes, { volumes: weakVol }));
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "two-close");
+      assert.equal(hit.volumeUsed, false);
+    }
   });
 
-  it("treats missing volume as close-confirm only", () => {
-    const prior = range(16, 100);
-    prior[7] = 120;
-    assert.equal(volumeConfirming(barsFrom([...prior, 121, 122, 123])), null);
-    const hit = breakoutLong(barsFrom([...prior, 121, 122, 123]));
-    assert.ok(hit);
-    assert.equal(hit.volumeUsed, false);
+  it("enters on one strong breakout bar with a volume spike", () => {
+    const prior = priorWithHigh(120);
+    const closes = [...prior, 118, 122];
+    const highs = [...prior, 119, 123];
+    const lows = [...prior, 117, 118];
+    const opens = [...prior, 118, 119];
+    const volumes = [...range(BREAKOUT_LOOKBACK, 40, 0), 30, 80];
+    const hit = diagnoseBreakout(book(closes, { highs, lows, opens, volumes }));
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "spike");
+      assert.equal(hit.volumeUsed, true);
+      assert.equal(hit.resistance, 120);
+    }
+    assert.ok((volumeRatio(barsFrom(closes, { volumes }), 1) ?? 0) >= BREAKOUT_VOL_SPIKE);
+  });
+
+  it("skips a single close above resistance without a volume/ATR spike", () => {
+    const prior = priorWithHigh(120);
+    const d = diagnoseBreakout(book([...prior, 118, 121], { volumes: [...range(BREAKOUT_LOOKBACK, 40, 0), 30, 35] }));
+    assert.equal(d.ok, false);
+    if (!d.ok) {
+      assert.match(d.reason, /need 2nd close or vol spike|1\/2 closes/);
+      assert.match(formatBreakoutSkip(d), /BOLT skip · res 120/);
+      assert.match(formatBreakoutSkip(d), /closes /);
+      assert.match(formatBreakoutSkip(d), /vol /);
+    }
+  });
+
+  it("treats missing volume as close-confirm on two-close, ATR-expand on spike", () => {
+    const prior = priorWithHigh(120);
+    const two = diagnoseBreakout(book([...prior, 121, 122]));
+    assert.equal(two.ok, true);
+    if (two.ok) assert.equal(two.volumeUsed, false);
+
+    const tight = [100.0, 100.1, 100.2, 100.15, 100.3, 100.25, 100.4, 100.85, 100.5, 101.1];
+    const highs = [100.12, 100.18, 100.28, 100.22, 100.38, 100.32, 100.48, 100.9, 100.58, 101.25];
+    const lows = [99.92, 100.02, 100.1, 100.08, 100.18, 100.16, 100.28, 100.42, 100.38, 100.35];
+    const opens = [100.0, 100.08, 100.16, 100.18, 100.22, 100.28, 100.32, 100.5, 100.48, 100.52];
+    const spike = diagnoseBreakout(book(tight, { highs, lows, opens }));
+    assert.equal(spike.ok, true);
+    if (spike.ok) {
+      assert.equal(spike.mode, "spike");
+      assert.equal(spike.volumeUsed, false);
+    }
   });
 
   it("ignores the live tick when synthesizing completed bars", () => {
@@ -104,9 +158,8 @@ describe("BTC 15m breakout", () => {
   });
 
   it("emits a long-only paper signal with conservative stops and partial target", () => {
-    const prior = range(16, 80_000);
-    prior[4] = 81_000;
-    const b = book([...prior, 81_100, 81_200, 81_250], { price: 81_260 });
+    const prior = priorWithHigh(81_000, 80_000);
+    const b = book([...prior, 81_100, 81_200], { price: 81_210 });
     const signal = evaluateBtcBreakout(b, 50, "bolt");
     assert.ok(signal);
     assert.equal(signal.side, 1);
@@ -116,18 +169,23 @@ describe("BTC 15m breakout", () => {
     assert.equal(signal.stopPct, 0.01);
     assert.equal(signal.takePct, 0.02);
     assert.equal(signal.firstTargetPct, 0.01);
-    assert.match(signal.reason, /3×15m close > res 81000/);
+    assert.match(signal.reason, /2×15m close > res 81000/);
   });
 
   it("does not chase an already-extended breakout", () => {
-    const prior = range(16, 80_000);
-    prior[4] = 81_000;
+    const prior = priorWithHigh(81_000, 80_000);
     const run = 81_000 * (1 + BREAKOUT_MAX_EXTENSION + 0.01);
-    const b = book([...prior, run, run, run], { price: run });
+    const b = book([...prior, run, run], { price: run });
     assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
+    const d = diagnoseBreakout(b);
+    assert.equal(d.ok, false);
+    if (!d.ok) assert.match(d.reason, /extended/);
   });
 
   it("returns no signal when history is too short", () => {
-    assert.equal(evaluateBtcBreakout(book(range(8, 100)), 50, "bolt"), null);
+    assert.equal(evaluateBtcBreakout(book(range(6, 100)), 50, "bolt"), null);
+    const d = diagnoseBreakout(book(range(6, 100)));
+    assert.equal(d.ok, false);
+    if (!d.ok) assert.match(formatBreakoutSkip(d), /need 10 bars have 6/);
   });
 });

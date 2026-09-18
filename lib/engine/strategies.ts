@@ -122,7 +122,7 @@ export function evaluateModule(
         .sort((a, b) => Math.abs(b.b.gap) - Math.abs(a.b.gap))[0];
       if (!cand || Math.abs(cand.b.gap) < 0.003) return null;
       const side: 1 | -1 = cand.b.gap > 0 ? -1 : 1;
-      const notional = sizeFor(equity, cand.b.gap, cand.b.rel, 0.05);
+      const notional = clamp(sizeFor(equity, cand.b.gap, cand.b.rel, 0.02), 2.2, equity * 0.08);
       return {
         moduleId,
         venue: "crypto",

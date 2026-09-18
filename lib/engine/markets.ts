@@ -59,10 +59,20 @@ async function krakenOhlc(symbol: CryptoSymbol, interval = 15): Promise<CryptoBa
     const bars: CryptoBar[] = [];
     for (const row of rows) {
       if (!Array.isArray(row)) continue;
-      const close = num(row[4]);
+      const open = num(row[1]);
       const high = num(row[2]);
+      const low = num(row[3]);
+      const close = num(row[4]);
       const volume = num(row[6]);
-      if (close > 0) bars.push({ close, high: high > 0 ? high : close, volume });
+      if (close > 0) {
+        bars.push({
+          close,
+          high: high > 0 ? high : close,
+          low: low > 0 ? low : close,
+          open: open > 0 ? open : close,
+          volume,
+        });
+      }
     }
     // Last Kraken candle is the in-progress 15m bar — breakout uses completed bars only.
     if (bars.length > 2) bars.pop();
@@ -111,8 +121,16 @@ async function coingeckoHistory(symbol: CryptoSymbol): Promise<CryptoBar[] | nul
       if (!(px > 0)) continue;
       const bucket = Math.floor(ts / (15 * 60 * 1000));
       const prev = buckets.get(bucket);
-      if (!prev) buckets.set(bucket, { close: px, high: px, volume: 0 });
-      else buckets.set(bucket, { close: px, high: Math.max(prev.high, px), volume: 0 });
+      if (!prev) buckets.set(bucket, { close: px, high: px, low: px, open: px, volume: 0 });
+      else {
+        buckets.set(bucket, {
+          close: px,
+          high: Math.max(prev.high, px),
+          low: Math.min(prev.low > 0 ? prev.low : prev.close, px),
+          open: prev.open > 0 ? prev.open : px,
+          volume: 0,
+        });
+      }
     }
     const bars = [...buckets.values()];
     if (!bars.length) return null;

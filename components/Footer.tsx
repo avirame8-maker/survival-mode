@@ -43,7 +43,8 @@ export default function Footer({
             {cycleMs >= 60_000 ? `${Math.round(cycleMs / 60000)}M CYCLE` : `${cycleMs}MS CYCLE`}
           </span>
         )}
-        <span className="badge cadence">WEEK {paperWeek}</span>
+        <span className="badge cadence">PAPER WEEK {paperWeek}</span>
+        {paperWeek >= 3 ? <span className="badge cadence last-chance">LAST CHANCE</span> : null}
         <span className="badge cadence">NO LIVE MONEY</span>
       </div>
       <div className="actions">

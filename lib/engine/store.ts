@@ -9,8 +9,8 @@ const FILE = path.join(
   process.env.VERCEL ? "survival-mode-state.json" : path.join("data", "agent-state.json"),
 );
 
-/** Week-2 book. Week-1 lived at paper-week-state.json and is discarded. */
-const BLOB_PATH = "paper-week-2-state.json";
+/** Week-3 book. Week-2 lived at paper-week-2-state.json and is discarded. */
+const BLOB_PATH = "paper-week-3-state.json";
 
 function blobEnabled(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);

@@ -1,7 +1,7 @@
 import type { ModuleDef } from "./types";
 
 export const STATE_VERSION = 4 as const;
-export const PAPER_WEEK = 2;
+export const PAPER_WEEK = 3;
 export const INITIAL_CAPITAL = 50;
 export const SUBSCRIPTION_MONTHLY = 200;
 export const MAX_LOG = 180;
@@ -67,7 +67,17 @@ export function moduleDef(id: string): ModuleDef {
 }
 
 export function moduleStartsPaused(m: ModuleDef): boolean {
-  return m.flavor === "prediction" || m.flavor === "macro";
+  return m.flavor === "prediction" || m.flavor === "macro" || m.flavor === "alts";
+}
+
+export function moduleStartNote(m: ModuleDef): string {
+  if (m.flavor === "prediction" || m.flavor === "macro") {
+    return "paused — Polymarket owned by another agent";
+  }
+  if (m.flavor === "alts") {
+    return "paused — alts secondary; BTC/ETH drive the book";
+  }
+  return "";
 }
 
 export function isPredictionModule(id: string): boolean {
