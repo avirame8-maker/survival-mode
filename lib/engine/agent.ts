@@ -9,11 +9,13 @@ import {
   SUBSCRIPTION_MONTHLY,
   isPredictionModule,
   moduleDef,
+  moduleStartNote,
   moduleStartsPaused,
 } from "./modules";
 import { round2, uid, uptimeLabel } from "./math";
 import { loadState, saveState } from "./store";
 import { applyReplayStep, fetchCrypto, fetchPredictions, tapeSentiment } from "./markets";
+import { diagnoseBreakout, formatBreakoutSkip } from "./breakout";
 import { evaluateModule, markOf, scanNotes, unrealized } from "./strategies";
 
 const g = globalThis as unknown as {
@@ -60,7 +62,7 @@ function freshState(demo: boolean, cycleMs: number): AgentState {
         trades: 0,
         wins: 0,
         losses: 0,
-        lastNote: paused ? "paused — Polymarket owned by another agent" : "",
+        lastNote: moduleStartNote(m),
       };
     }),
     positions: [],
@@ -261,12 +263,13 @@ export class Agent {
       } else {
         this.bootLine("BRAM/RIGO paused — Polymarket owned by another agent");
       }
-      this.bootLine("BOLT armed · BTC 15m breakout · 3 closes above resistance");
+      this.bootLine("BOLT armed · BTC 15m breakout · 2 closes > res or 1 vol-spike bar");
+      this.bootLine("TESS paused — alts secondary · ILSA/KETT on · BTC/ETH drive the book");
       this.bootLine(`paper broker ready · capital ${this.state.initialCapital.toFixed(2)} USD`);
       this.bootLine(
         this.state.demo
           ? "DEMO cadence · accelerated cycles"
-          : `PAPER WEEK ${this.state.paperWeek} · $50 · 15M CYCLE · no live money`,
+          : `PAPER WEEK ${this.state.paperWeek} · LAST CHANCE · $50 · 15M CYCLE · no live money`,
       );
       this.bootLine("survival law armed · $200/mo from profits");
 
@@ -518,18 +521,46 @@ export class Agent {
     if (this.state.status !== "ALIVE") return;
     const equity = this.equity();
     if (equity < 6) return;
-    const deployed = this.state.positions.reduce((a, p) => a + p.notional, 0);
     const boostBolt = this.moduleRt("ilsa").autoPaused ? 1.28 : 1;
-    const room = equity * 0.46 - deployed;
+    const boltRt = this.moduleRt("bolt");
 
     for (const mod of this.state.modules) {
       if (mod.paused) continue;
-      if (room < 2.5) break;
+      const deployed = this.state.positions.reduce((a, p) => a + p.notional, 0);
+      const boltFilled = this.state.positions.some((p) => p.moduleId === "bolt");
+      const reserve = mod.id !== "bolt" && !boltRt.paused && !boltFilled ? equity * 0.06 : 0;
+      const room = equity * 0.46 - deployed - reserve;
+      if (room < 2.2) {
+        if (mod.id === "bolt" && !boltFilled) {
+          const note = "BOLT skip · no room (book full)";
+          this.pushLog("scan", note, { moduleId: "bolt" });
+          mod.lastNote = note;
+        }
+        continue;
+      }
       const signal = evaluateModule(mod.id, this.state, equity, boostBolt);
-      if (!signal) continue;
+      if (!signal) {
+        if (mod.id === "bolt" && !boltFilled) {
+          const btc = this.state.crypto.find((c) => c.symbol === "BTC");
+          const d = diagnoseBreakout(btc);
+          const note = d.ok
+            ? "BOLT skip · setup ok but size/cash blocked"
+            : formatBreakoutSkip(d);
+          this.pushLog("scan", note, { moduleId: "bolt" });
+          mod.lastNote = note;
+        }
+        continue;
+      }
       const capFrac = signal.moduleId === "bolt" ? 0.06 : 0.18;
       const notional = round2(Math.min(signal.notional, room, this.state.cash * 0.9, equity * capFrac));
-      if (notional < 2.2 || this.state.cash < notional + 1.5) continue;
+      if (notional < 2.2 || this.state.cash < notional + 1.5) {
+        if (mod.id === "bolt") {
+          const note = "BOLT skip · size/cash blocked";
+          this.pushLog("scan", note, { moduleId: "bolt" });
+          mod.lastNote = note;
+        }
+        continue;
+      }
       const qty = signal.entry > 0 ? notional / signal.entry : 0;
       if (qty <= 0) continue;
       const pos: Position = {

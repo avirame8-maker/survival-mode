@@ -67,6 +67,8 @@ export interface EquityPoint {
 export interface CryptoBar {
   close: number;
   high: number;
+  low: number;
+  open: number;
   volume: number;
 }
 
