@@ -32,6 +32,32 @@ function alreadyOpen(state: AgentState, moduleId: string): boolean {
   return state.positions.some((p) => p.moduleId === moduleId);
 }
 
+/** ILSA (ETH momentum) and KETT (mean reversion) must not hold opposite sides of the same symbol. */
+const OPPOSING_PAIR: Record<string, string> = { ilsa: "kett", kett: "ilsa" };
+
+export function opposingSiblingPosition(
+  state: AgentState,
+  moduleId: string,
+  symbol: string,
+  side: 1 | -1,
+) {
+  const otherId = OPPOSING_PAIR[moduleId];
+  if (!otherId) return undefined;
+  return state.positions.find(
+    (p) => p.moduleId === otherId && p.symbol === symbol && p.side === -side,
+  );
+}
+
+export function opposingSkipNote(
+  moduleId: string,
+  sibling: { moduleId: string; symbol: string; side: 1 | -1 },
+): string {
+  const self = MODULES.find((m) => m.id === moduleId)?.name ?? moduleId.toUpperCase();
+  const other = MODULES.find((m) => m.id === sibling.moduleId)?.name ?? sibling.moduleId.toUpperCase();
+  const sideWord = sibling.side > 0 ? "long" : "short";
+  return `${self} skip · opposite ${other} ${sibling.symbol} ${sideWord} open`;
+}
+
 function predPick(
   books: PredictionBook[],
   category: PredictionBook["category"] | "any",

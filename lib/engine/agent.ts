@@ -16,7 +16,14 @@ import { round2, uid, uptimeLabel } from "./math";
 import { loadState, saveState } from "./store";
 import { applyReplayStep, fetchCrypto, fetchPredictions, tapeSentiment } from "./markets";
 import { diagnoseBreakout, formatBreakoutSkip } from "./breakout";
-import { evaluateModule, markOf, scanNotes, unrealized } from "./strategies";
+import {
+  evaluateModule,
+  markOf,
+  opposingSiblingPosition,
+  opposingSkipNote,
+  scanNotes,
+  unrealized,
+} from "./strategies";
 
 const g = globalThis as unknown as {
   __survivalTimer?: ReturnType<typeof setInterval>;
@@ -549,6 +556,18 @@ export class Agent {
           this.pushLog("scan", note, { moduleId: "bolt" });
           mod.lastNote = note;
         }
+        continue;
+      }
+      const opposing = opposingSiblingPosition(
+        this.state,
+        signal.moduleId,
+        signal.symbol,
+        signal.side,
+      );
+      if (opposing) {
+        const note = opposingSkipNote(signal.moduleId, opposing);
+        this.pushLog("scan", note, { moduleId: mod.id });
+        mod.lastNote = note;
         continue;
       }
       const capFrac = signal.moduleId === "bolt" ? 0.06 : 0.18;
