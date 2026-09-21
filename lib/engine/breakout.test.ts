@@ -56,6 +56,22 @@ function priorWithHigh(high = 120, base = 100): number[] {
 }
 
 /**
+ * One close just above resistance, bullish and near the high, with a controlled
+ * volume multiple. Extension stays under the spike ATR-expand minimum so only
+ * the volume gate can confirm.
+ */
+function spikeVolBook(volMultiple: number): CryptoBook {
+  const prior = priorWithHigh(10_000, 9_900);
+  const closes = [...prior, 9_980, 10_005];
+  const highs = [...prior, 9_990, 10_008];
+  const lows = [...prior, 9_960, 10_000];
+  const opens = [...prior, 9_970, 10_001];
+  const volumes = Array(closes.length).fill(100);
+  volumes[volumes.length - 1] = 100 * volMultiple;
+  return book(closes, { highs, lows, opens, volumes, price: 10_005 });
+}
+
+/**
  * Tight 15m tape with a single lookback wick at `res`.
  * `quiet` keeps ATR under BREAKOUT_QUIET_ATR_PCT; otherwise ATR is ~0.2%.
  */
@@ -148,6 +164,38 @@ describe("BTC 15m breakout", () => {
       assert.equal(hit.atrBufferUsed, false);
     }
     assert.ok((volumeRatio(barsFrom(closes, { volumes }), 1) ?? 0) >= BREAKOUT_VOL_SPIKE);
+  });
+
+  it("enters a 1.26× volume spike that the 1.4× gate used to skip", () => {
+    assert.equal(BREAKOUT_VOL_SPIKE, 1.25);
+    const ratio = volumeRatio(completedBars(spikeVolBook(1.26)), 1);
+    assert.equal(ratio?.toFixed(2), "1.26");
+    assert.ok(ratio != null && ratio < 1.4 && ratio >= BREAKOUT_VOL_SPIKE);
+
+    const hit = diagnoseBreakout(spikeVolBook(1.26));
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "spike");
+      assert.equal(hit.volumeUsed, true);
+      assert.equal(hit.resistance, 10_000);
+    }
+    const signal = evaluateBtcBreakout(spikeVolBook(1.26), 50, "bolt");
+    assert.ok(signal);
+    assert.match(signal.reason, /spike bar > res 10000/);
+    assert.match(signal.reason, /vol 1\.26× ≥ 1\.25×/);
+  });
+
+  it("still skips 0.65× and 1.0× volume on the spike path", () => {
+    for (const mult of [0.65, 1]) {
+      const d = diagnoseBreakout(spikeVolBook(mult));
+      assert.equal(d.ok, false);
+      if (!d.ok) {
+        const label = mult.toFixed(2).replace(".", "\\.");
+        assert.match(d.reason, new RegExp(`vol ${label}× < 1\\.25×`));
+        assert.match(formatBreakoutSkip(d), new RegExp(`vol ${label}× < 1\\.25×`));
+      }
+      assert.equal(evaluateBtcBreakout(spikeVolBook(mult), 50, "bolt"), null);
+    }
   });
 
   it("skips a single close above resistance without a volume/ATR spike", () => {
@@ -271,7 +319,7 @@ describe("BTC 15m breakout", () => {
       assert.match(d.reason, /last 80200 ≤ res/);
       assert.doesNotMatch(d.reason, /within 1×ATR/);
       assert.match(d.reason, /vol 4\.\d+×/);
-      assert.doesNotMatch(d.reason, /< 1\.4×/);
+      assert.doesNotMatch(d.reason, /< 1\.25×/);
       assert.match(formatBreakoutSkip(d), /BOLT skip · res 80752/);
     }
     assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
@@ -308,7 +356,7 @@ describe("BTC 15m breakout", () => {
     assert.equal(d.ok, false);
     if (!d.ok) {
       assert.match(d.reason, /last 80733 ≤ res/);
-      assert.match(d.reason, /vol .* < 1\.4×/);
+      assert.match(d.reason, /vol .* < 1\.25×/);
       assert.match(d.reason, /quiet range/);
       assert.match(formatBreakoutSkip(d), /BOLT skip · res 80752/);
     }

@@ -11,7 +11,8 @@ export const BREAKOUT_FIRST_TARGET_PCT = 0.01;
 export const BREAKOUT_TAKE_PCT = 0.02;
 /** Skip if price has already run more than this above resistance. */
 export const BREAKOUT_MAX_EXTENSION = 0.02;
-export const BREAKOUT_VOL_SPIKE = 1.4;
+/** Spike-path volume multiple vs the lookback average. Two-close confirm does not use this. */
+export const BREAKOUT_VOL_SPIKE = 1.25;
 export const BREAKOUT_ATR_PERIOD = 8;
 /** ATR/price below this is a quiet range — spike path needs volume or range expansion. */
 export const BREAKOUT_QUIET_ATR_PCT = 0.0012;
@@ -251,7 +252,12 @@ export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision
     parts.push("need 2nd close or vol spike");
   }
   if (vol != null) {
-    parts.push(vol >= BREAKOUT_VOL_SPIKE ? `vol ${vol.toFixed(2)}×` : `vol ${vol.toFixed(2)}× < ${BREAKOUT_VOL_SPIKE}×`);
+    const gate = `${BREAKOUT_VOL_SPIKE}×`;
+    parts.push(
+      vol >= BREAKOUT_VOL_SPIKE
+        ? `vol ${vol.toFixed(2)}× ≥ ${gate}`
+        : `vol ${vol.toFixed(2)}× < ${gate}`,
+    );
   } else {
     parts.push("vol n/a");
   }
@@ -294,7 +300,7 @@ export function evaluateBtcBreakout(
   const volBit =
     hit.mode === "spike"
       ? hit.volumeUsed && hit.volRatio != null
-        ? `vol ${hit.volRatio.toFixed(2)}×`
+        ? `vol ${hit.volRatio.toFixed(2)}× ≥ ${BREAKOUT_VOL_SPIKE}×`
         : "ATR expand"
       : hit.volumeUsed
         ? "vol confirm"
