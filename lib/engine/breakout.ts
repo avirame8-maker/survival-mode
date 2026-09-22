@@ -19,7 +19,7 @@ export const BREAKOUT_QUIET_ATR_PCT = 0.0012;
 export const BREAKOUT_SPIKE_RANGE_ATR = 1.2;
 export const BREAKOUT_SPIKE_EXT_MIN = 0.0015;
 /** Spike path only: last clears resistance if it is within this many ATRs below res. */
-export const BREAKOUT_SPIKE_ATR_BUFFER = 1;
+export const BREAKOUT_SPIKE_ATR_BUFFER = 1.5;
 
 export type BreakoutHit = {
   ok: true;
@@ -127,12 +127,13 @@ function bullishBar(b: CryptoBar): boolean {
 /** Absolute 1×ATR in price units from the same ATR% the skip log prints. */
 function atrAbsFromPct(lastClose: number, atrPct: number | null): number | null {
   if (atrPct == null || !(atrPct >= 0) || !(lastClose > 0)) return null;
-  return atrPct * lastClose * BREAKOUT_SPIKE_ATR_BUFFER;
+  return atrPct * lastClose;
 }
 
 /**
  * Spike / ATR-expansion path only. Two-close stays strict (`close > res`).
- * With ATR: `last >= res - 1×ATR`. Without ATR: keep `last > res`.
+ * With ATR: `last >= res - 1.5×ATR`. Without ATR: keep `last > res`.
+ * Range expansion stays on true 1×ATR; only this proximity gate uses the buffer.
  */
 export function spikeClearsResistance(
   lastClose: number,
@@ -142,7 +143,7 @@ export function spikeClearsResistance(
   if (!(lastClose > 0) || !(resistance > 0)) return false;
   const atrAbs = atrAbsFromPct(lastClose, atrPct);
   if (atrAbs == null) return lastClose > resistance;
-  return lastClose >= resistance - atrAbs;
+  return lastClose >= resistance - atrAbs * BREAKOUT_SPIKE_ATR_BUFFER;
 }
 
 export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision {
@@ -244,7 +245,7 @@ export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision
     const nearMiss = spikeClearsResistance(last.close, res, atr);
     parts.push(
       nearMiss
-        ? `last ${last.close.toFixed(0)} ≤ res · within 1×ATR`
+        ? `last ${last.close.toFixed(0)} ≤ res · within ${BREAKOUT_SPIKE_ATR_BUFFER}×ATR`
         : `last ${last.close.toFixed(0)} ≤ res`,
     );
   } else parts.push(`${above}/2 closes > res`);
@@ -306,7 +307,7 @@ export function evaluateBtcBreakout(
         ? "vol confirm"
         : "close confirm";
   const setup = hit.mode === "two-close" ? "2×15m close" : "spike bar";
-  const vsRes = hit.atrBufferUsed ? "≥ res − 1×ATR" : "> res";
+  const vsRes = hit.atrBufferUsed ? `≥ res − ${BREAKOUT_SPIKE_ATR_BUFFER}×ATR` : "> res";
   return {
     moduleId,
     venue: "crypto",
