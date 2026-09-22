@@ -4,13 +4,16 @@ import type { CryptoBar, CryptoBook } from "./types";
 import {
   BREAKOUT_LOOKBACK,
   BREAKOUT_MAX_EXTENSION,
+  BREAKOUT_QUIET_ATR_PCT,
   BREAKOUT_VOL_SPIKE,
+  atrPct,
   completedBars,
   diagnoseBreakout,
   evaluateBtcBreakout,
   formatBreakoutSkip,
   priorResistance,
   sizeBreakout,
+  spikeClearsResistance,
   volumeRatio,
 } from "./breakout";
 
@@ -68,6 +71,45 @@ function spikeVolBook(volMultiple: number): CryptoBook {
   return book(closes, { highs, lows, opens, volumes, price: 10_005 });
 }
 
+/**
+ * Tight 15m tape with a single lookback wick at `res`.
+ * `quiet` keeps ATR under BREAKOUT_QUIET_ATR_PCT; otherwise ATR is ~0.2%.
+ */
+function tightTape(opts: {
+  res: number;
+  lastClose: number;
+  lastVol: number;
+  lookbackVol?: number;
+  quiet?: boolean;
+}): CryptoBook {
+  const lookbackVol = opts.lookbackVol ?? 40;
+  const n = BREAKOUT_LOOKBACK + 2;
+  const pad = opts.quiet ? 3 : 80;
+  const closes: number[] = [];
+  const highs: number[] = [];
+  const lows: number[] = [];
+  const opens: number[] = [];
+  const volumes: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const isLast = i === n - 1;
+    const isResBar = i === 5;
+    const close = isLast ? opts.lastClose : opts.res - 90 + (i % 3) * 8;
+    const high = isResBar
+      ? opts.res
+      : isLast
+        ? close + 12
+        : Math.min(opts.res - 1, close + pad);
+    const low = isLast ? close - pad * 0.9 : close - pad;
+    const open = isLast ? Math.min(close - 18, low + 4) : close - pad * 0.15;
+    closes.push(close);
+    highs.push(high);
+    lows.push(Math.min(low, open, close));
+    opens.push(open);
+    volumes.push(isLast ? opts.lastVol : lookbackVol);
+  }
+  return book(closes, { highs, lows, opens, volumes, price: opts.lastClose });
+}
+
 describe("BTC 15m breakout", () => {
   it("needs lookback + 2 confirm bars before a resistance exists", () => {
     assert.equal(priorResistance(barsFrom(range(8, 100))), null);
@@ -90,6 +132,7 @@ describe("BTC 15m breakout", () => {
       assert.equal(hit.resistance, 120);
       assert.equal(hit.mode, "two-close");
       assert.equal(hit.volumeUsed, false);
+      assert.equal(hit.atrBufferUsed, false);
     }
   });
 
@@ -118,6 +161,7 @@ describe("BTC 15m breakout", () => {
       assert.equal(hit.mode, "spike");
       assert.equal(hit.volumeUsed, true);
       assert.equal(hit.resistance, 120);
+      assert.equal(hit.atrBufferUsed, false);
     }
     assert.ok((volumeRatio(barsFrom(closes, { volumes }), 1) ?? 0) >= BREAKOUT_VOL_SPIKE);
   });
@@ -235,5 +279,87 @@ describe("BTC 15m breakout", () => {
     const d = diagnoseBreakout(book(range(6, 100)));
     assert.equal(d.ok, false);
     if (!d.ok) assert.match(formatBreakoutSkip(d), /need 10 bars have 6/);
+  });
+
+  it("enters on a volume spike when last is just under res but within 1×ATR", () => {
+    const res = 80_752;
+    const last = 80_733; // ~$19 / ~0.023% under res — the 2026-09-20 live near-miss
+    const b = tightTape({ res, lastClose: last, lastVol: 181 });
+    const bars = completedBars(b);
+    const atr = atrPct(bars);
+    const vol = volumeRatio(bars, 1);
+    assert.ok(atr != null && atr >= BREAKOUT_QUIET_ATR_PCT);
+    assert.ok((vol ?? 0) >= BREAKOUT_VOL_SPIKE);
+    assert.ok(last < res);
+    assert.ok(spikeClearsResistance(last, res, atr));
+    const hit = diagnoseBreakout(b);
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "spike");
+      assert.equal(hit.volumeUsed, true);
+      assert.equal(hit.atrBufferUsed, true);
+      assert.equal(hit.resistance, res);
+    }
+    const signal = evaluateBtcBreakout(b, 50, "bolt");
+    assert.ok(signal);
+    assert.match(signal.reason, /spike bar ≥ res − 1×ATR 80752/);
+    assert.match(signal.reason, /vol /);
+  });
+
+  it("still skips a volume spike when last is more than 1×ATR below res", () => {
+    const res = 80_752;
+    const last = 80_200; // ~$552 under res, well beyond 1×ATR on this tape
+    const b = tightTape({ res, lastClose: last, lastVol: 181 });
+    const atr = atrPct(completedBars(b));
+    assert.ok(atr != null);
+    assert.equal(spikeClearsResistance(last, res, atr), false);
+    const d = diagnoseBreakout(b);
+    assert.equal(d.ok, false);
+    if (!d.ok) {
+      assert.match(d.reason, /last 80200 ≤ res/);
+      assert.doesNotMatch(d.reason, /within 1×ATR/);
+      assert.match(d.reason, /vol 4\.\d+×/);
+      assert.doesNotMatch(d.reason, /< 1\.25×/);
+      assert.match(formatBreakoutSkip(d), /BOLT skip · res 80752/);
+    }
+    assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
+  });
+
+  it("keeps the two-close path strict — closes at/under res do not count even inside 1×ATR", () => {
+    const prior = priorWithHigh(120);
+    const weakVol = [...range(BREAKOUT_LOOKBACK, 40, 0), 8, 8];
+    const under = diagnoseBreakout(book([...prior, 119.9, 119.95], { volumes: weakVol }));
+    assert.equal(under.ok, false);
+    if (!under.ok) {
+      assert.match(under.reason, /last 120 ≤ res|last 119 ≤ res/);
+      assert.doesNotMatch(under.reason, /2×15m/);
+    }
+
+    const hit = diagnoseBreakout(book([...prior, 121, 122], { volumes: weakVol }));
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "two-close");
+      assert.equal(hit.atrBufferUsed, false);
+    }
+  });
+
+  it("still skips a low-volume quiet range when last is under resistance", () => {
+    const res = 80_752;
+    const last = 80_733;
+    const b = tightTape({ res, lastClose: last, lastVol: 28, quiet: true });
+    const bars = completedBars(b);
+    const atr = atrPct(bars);
+    const vol = volumeRatio(bars, 1);
+    assert.ok(atr != null && atr < BREAKOUT_QUIET_ATR_PCT);
+    assert.ok(vol != null && vol < BREAKOUT_VOL_SPIKE);
+    const d = diagnoseBreakout(b);
+    assert.equal(d.ok, false);
+    if (!d.ok) {
+      assert.match(d.reason, /last 80733 ≤ res/);
+      assert.match(d.reason, /vol .* < 1\.25×/);
+      assert.match(d.reason, /quiet range/);
+      assert.match(formatBreakoutSkip(d), /BOLT skip · res 80752/);
+    }
+    assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
   });
 });
