@@ -82,6 +82,8 @@ function tightTape(opts: {
   lastVol: number;
   lookbackVol?: number;
   quiet?: boolean;
+  /** Live mark. Defaults to the completed bar close. */
+  price?: number;
 }): CryptoBook {
   const lookbackVol = opts.lookbackVol ?? 40;
   const n = BREAKOUT_LOOKBACK + 2;
@@ -108,7 +110,7 @@ function tightTape(opts: {
     opens.push(open);
     volumes.push(isLast ? opts.lastVol : lookbackVol);
   }
-  return book(closes, { highs, lows, opens, volumes, price: opts.lastClose });
+  return book(closes, { highs, lows, opens, volumes, price: opts.price ?? opts.lastClose });
 }
 
 describe("BTC 15m breakout", () => {
@@ -184,6 +186,46 @@ describe("BTC 15m breakout", () => {
     assert.ok(signal);
     assert.match(signal.reason, /spike bar > res 10000/);
     assert.match(signal.reason, /vol 1\.26× ≥ 1\.25×/);
+  });
+
+  it("skips a vol spike whose completed bar closed above res when live price fell back through it", () => {
+    const prior = priorWithHigh(120);
+    const closes = [...prior, 118, 122];
+    const highs = [...prior, 119, 123];
+    const lows = [...prior, 117, 118];
+    const opens = [...prior, 118, 119];
+    const volumes = [...range(BREAKOUT_LOOKBACK, 40, 0), 30, 80];
+    const cleared = diagnoseBreakout(book(closes, { highs, lows, opens, volumes }));
+    assert.equal(cleared.ok, true);
+    if (cleared.ok) {
+      assert.equal(cleared.mode, "spike");
+      assert.equal(cleared.volumeUsed, true);
+      assert.equal(cleared.atrBufferUsed, false);
+      assert.equal(cleared.resistance, 120);
+    }
+    for (const price of [119, 120]) {
+      const b = book(closes, { highs, lows, opens, volumes, price });
+      const d = diagnoseBreakout(b);
+      assert.equal(d.ok, false);
+      if (!d.ok) {
+        assert.equal(d.reason, "live ≤ res · failed follow-through");
+        assert.match(formatBreakoutSkip(d), /live ≤ res · failed follow-through/);
+        assert.equal(d.resistance, 120);
+      }
+      assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
+    }
+  });
+
+  it("skips two-close when the live mark dips back through resistance", () => {
+    const prior = priorWithHigh(120);
+    const b = book([...prior, 121, 122], { price: 119.5 });
+    const d = diagnoseBreakout(b);
+    assert.equal(d.ok, false);
+    if (!d.ok) {
+      assert.equal(d.reason, "live ≤ res · failed follow-through");
+      assert.match(formatBreakoutSkip(d), /BOLT skip · res 120/);
+    }
+    assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
   });
 
   it("still skips 0.65× and 1.0× volume on the spike path", () => {
@@ -285,7 +327,8 @@ describe("BTC 15m breakout", () => {
   it("enters on a volume spike when last is just under res but within 1.5×ATR", () => {
     const res = 80_752;
     const last = 80_733; // ~$19 / ~0.023% under res — the 2026-09-20 live near-miss
-    const b = tightTape({ res, lastClose: last, lastVol: 181 });
+    // Completed bar stays inside the 1.5×ATR buffer; live mark must confirm above res.
+    const b = tightTape({ res, lastClose: last, lastVol: 181, price: res + 20 });
     const bars = completedBars(b);
     const atr = atrPct(bars);
     const vol = volumeRatio(bars, 1);
@@ -303,6 +346,7 @@ describe("BTC 15m breakout", () => {
     }
     const signal = evaluateBtcBreakout(b, 50, "bolt");
     assert.ok(signal);
+    assert.ok(signal.entry > res);
     assert.match(signal.reason, /spike bar ≥ res − 1\.5×ATR 80752/);
     assert.match(signal.reason, /vol /);
   });
@@ -312,7 +356,7 @@ describe("BTC 15m breakout", () => {
     assert.equal(BREAKOUT_VOL_SPIKE, 1.25);
     const res = 80_752;
     const last = 80_520; // ~1.40×ATR under res — outside the old 1× gate, inside 1.5×
-    const b = tightTape({ res, lastClose: last, lastVol: 126, lookbackVol: 100 });
+    const b = tightTape({ res, lastClose: last, lastVol: 126, lookbackVol: 100, price: res + 20 });
     const bars = completedBars(b);
     const atr = atrPct(bars);
     const vol = volumeRatio(bars, 1);
@@ -333,6 +377,7 @@ describe("BTC 15m breakout", () => {
     }
     const signal = evaluateBtcBreakout(b, 50, "bolt");
     assert.ok(signal);
+    assert.ok(signal.entry > res);
     assert.match(signal.reason, /spike bar ≥ res − 1\.5×ATR 80752/);
     assert.match(signal.reason, /vol 1\.26× ≥ 1\.25×/);
   });
