@@ -5,6 +5,7 @@ import {
   BREAKOUT_LOOKBACK,
   BREAKOUT_MAX_EXTENSION,
   BREAKOUT_QUIET_ATR_PCT,
+  BREAKOUT_SPIKE_ATR_BUFFER,
   BREAKOUT_VOL_SPIKE,
   atrPct,
   completedBars,
@@ -281,7 +282,7 @@ describe("BTC 15m breakout", () => {
     if (!d.ok) assert.match(formatBreakoutSkip(d), /need 10 bars have 6/);
   });
 
-  it("enters on a volume spike when last is just under res but within 1×ATR", () => {
+  it("enters on a volume spike when last is just under res but within 1.5×ATR", () => {
     const res = 80_752;
     const last = 80_733; // ~$19 / ~0.023% under res — the 2026-09-20 live near-miss
     const b = tightTape({ res, lastClose: last, lastVol: 181 });
@@ -302,22 +303,53 @@ describe("BTC 15m breakout", () => {
     }
     const signal = evaluateBtcBreakout(b, 50, "bolt");
     assert.ok(signal);
-    assert.match(signal.reason, /spike bar ≥ res − 1×ATR 80752/);
+    assert.match(signal.reason, /spike bar ≥ res − 1\.5×ATR 80752/);
     assert.match(signal.reason, /vol /);
   });
 
-  it("still skips a volume spike when last is more than 1×ATR below res", () => {
+  it("enters a 1.26× volume spike about 1.4×ATR under resistance", () => {
+    assert.equal(BREAKOUT_SPIKE_ATR_BUFFER, 1.5);
+    assert.equal(BREAKOUT_VOL_SPIKE, 1.25);
     const res = 80_752;
-    const last = 80_200; // ~$552 under res, well beyond 1×ATR on this tape
+    const last = 80_520; // ~1.40×ATR under res — outside the old 1× gate, inside 1.5×
+    const b = tightTape({ res, lastClose: last, lastVol: 126, lookbackVol: 100 });
+    const bars = completedBars(b);
+    const atr = atrPct(bars);
+    const vol = volumeRatio(bars, 1);
+    assert.equal(vol?.toFixed(2), "1.26");
+    assert.ok(atr != null && atr >= BREAKOUT_QUIET_ATR_PCT);
+    const atrAbs = atr * last;
+    const dist = res - last;
+    assert.ok(dist > atrAbs);
+    assert.ok(dist <= atrAbs * BREAKOUT_SPIKE_ATR_BUFFER);
+    assert.equal(spikeClearsResistance(last, res, atr), true);
+    const hit = diagnoseBreakout(b);
+    assert.equal(hit.ok, true);
+    if (hit.ok) {
+      assert.equal(hit.mode, "spike");
+      assert.equal(hit.volumeUsed, true);
+      assert.equal(hit.atrBufferUsed, true);
+      assert.equal(hit.resistance, res);
+    }
+    const signal = evaluateBtcBreakout(b, 50, "bolt");
+    assert.ok(signal);
+    assert.match(signal.reason, /spike bar ≥ res − 1\.5×ATR 80752/);
+    assert.match(signal.reason, /vol 1\.26× ≥ 1\.25×/);
+  });
+
+  it("still skips a volume spike when last is more than 1.5×ATR below res", () => {
+    const res = 80_752;
+    const last = 80_200; // ~$552 under res, ~2.7×ATR on this tape
     const b = tightTape({ res, lastClose: last, lastVol: 181 });
     const atr = atrPct(completedBars(b));
     assert.ok(atr != null);
+    assert.ok(res - last > atr * last * BREAKOUT_SPIKE_ATR_BUFFER);
     assert.equal(spikeClearsResistance(last, res, atr), false);
     const d = diagnoseBreakout(b);
     assert.equal(d.ok, false);
     if (!d.ok) {
       assert.match(d.reason, /last 80200 ≤ res/);
-      assert.doesNotMatch(d.reason, /within 1×ATR/);
+      assert.doesNotMatch(d.reason, /within 1\.5×ATR/);
       assert.match(d.reason, /vol 4\.\d+×/);
       assert.doesNotMatch(d.reason, /< 1\.25×/);
       assert.match(formatBreakoutSkip(d), /BOLT skip · res 80752/);
@@ -325,7 +357,7 @@ describe("BTC 15m breakout", () => {
     assert.equal(evaluateBtcBreakout(b, 50, "bolt"), null);
   });
 
-  it("keeps the two-close path strict — closes at/under res do not count even inside 1×ATR", () => {
+  it("keeps the two-close path strict — closes at/under res do not count even inside 1.5×ATR", () => {
     const prior = priorWithHigh(120);
     const weakVol = [...range(BREAKOUT_LOOKBACK, 40, 0), 8, 8];
     const under = diagnoseBreakout(book([...prior, 119.9, 119.95], { volumes: weakVol }));
