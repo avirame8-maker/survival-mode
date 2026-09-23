@@ -146,6 +146,28 @@ export function spikeClearsResistance(
   return lastClose >= resistance - atrAbs * BREAKOUT_SPIKE_ATR_BUFFER;
 }
 
+/**
+ * Order-time gate only. Completed-bar clearance (including the 1.5×ATR spike
+ * buffer) is unchanged; the live mark must still be strictly above resistance.
+ */
+function liveFollowThroughSkip(
+  price: number,
+  resistance: number,
+  closes: number[],
+  vol: number | null,
+  atr: number | null,
+): BreakoutSkip | null {
+  if (price > resistance) return null;
+  return {
+    ok: false,
+    reason: "live ≤ res · failed follow-through",
+    resistance,
+    closes,
+    volRatio: vol,
+    atrPct: atr,
+  };
+}
+
 export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision {
   const bars = completedBars(book);
   const closes = lastCloses(bars);
@@ -185,6 +207,8 @@ export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision
         atrPct: atr,
       };
     }
+    const faded = liveFollowThroughSkip(price, resistance2, closes, vol, atr);
+    if (faded) return faded;
     return {
       ok: true,
       resistance: resistance2,
@@ -224,6 +248,8 @@ export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision
       (volSpike || (vol == null && rangeExpand && strongExt) || (rangeExpand && strongExt && !quiet));
 
     if (spikeOk) {
+      const faded = liveFollowThroughSkip(price, resistance1, closes, vol, atr);
+      if (faded) return faded;
       return {
         ok: true,
         resistance: resistance1,
@@ -295,7 +321,8 @@ export function evaluateBtcBreakout(
   if (!hit.ok || !book) return null;
   const bars = completedBars(book);
   const price = book.price || bars.at(-1)?.close || 0;
-  if (!(price > 0)) return null;
+  // Strict live confirmation: do not fill a long that has fallen back through resistance.
+  if (!(price > hit.resistance)) return null;
   const notional = sizeBreakout(equity);
   if (notional < 2.2) return null;
   const volBit =
