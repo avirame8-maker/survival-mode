@@ -18,8 +18,8 @@ export const BREAKOUT_ATR_PERIOD = 8;
 export const BREAKOUT_QUIET_ATR_PCT = 0.0012;
 export const BREAKOUT_SPIKE_RANGE_ATR = 1.2;
 export const BREAKOUT_SPIKE_EXT_MIN = 0.0015;
-/** Spike path only: last clears resistance if it is within this many ATRs below res. */
-export const BREAKOUT_SPIKE_ATR_BUFFER = 1.5;
+/** Spike path no longer allows closes below resistance. Zero removes the under-res ATR buffer. */
+export const BREAKOUT_SPIKE_ATR_BUFFER = 0;
 
 export type BreakoutHit = {
   ok: true;
@@ -132,8 +132,9 @@ function atrAbsFromPct(lastClose: number, atrPct: number | null): number | null 
 
 /**
  * Spike / ATR-expansion path only. Two-close stays strict (`close > res`).
- * With ATR: `last >= res - 1.5×ATR`. Without ATR: keep `last > res`.
- * Range expansion stays on true 1×ATR; only this proximity gate uses the buffer.
+ * With ATR: `last >= res` — the spike path no longer allows closes below resistance.
+ * Without ATR: keep `last > res`.
+ * Range expansion stays on true 1×ATR; this gate does not accept an under-res close.
  */
 export function spikeClearsResistance(
   lastClose: number,
@@ -147,8 +148,8 @@ export function spikeClearsResistance(
 }
 
 /**
- * Order-time gate only. Completed-bar clearance (including the 1.5×ATR spike
- * buffer) is unchanged; the live mark must still be strictly above resistance.
+ * Order-time gate only. Completed-bar spike clearance no longer allows a close
+ * below resistance; the live mark must still be strictly above resistance.
  */
 function liveFollowThroughSkip(
   price: number,
@@ -268,7 +269,10 @@ export function diagnoseBreakout(book: CryptoBook | undefined): BreakoutDecision
   const parts: string[] = [];
   if (res == null) parts.push("no resistance");
   else if (last.close <= res) {
-    const nearMiss = spikeClearsResistance(last.close, res, atr);
+    // A positive buffer can still tag an under-res close as a near miss.
+    // Buffer 0 does not: spike path no longer allows closes below resistance.
+    const nearMiss =
+      BREAKOUT_SPIKE_ATR_BUFFER > 0 && spikeClearsResistance(last.close, res, atr);
     parts.push(
       nearMiss
         ? `last ${last.close.toFixed(0)} ≤ res · within ${BREAKOUT_SPIKE_ATR_BUFFER}×ATR`
@@ -334,7 +338,12 @@ export function evaluateBtcBreakout(
         ? "vol confirm"
         : "close confirm";
   const setup = hit.mode === "two-close" ? "2×15m close" : "spike bar";
-  const vsRes = hit.atrBufferUsed ? `≥ res − ${BREAKOUT_SPIKE_ATR_BUFFER}×ATR` : "> res";
+  const vsRes =
+    hit.atrBufferUsed && BREAKOUT_SPIKE_ATR_BUFFER > 0
+      ? `≥ res − ${BREAKOUT_SPIKE_ATR_BUFFER}×ATR`
+      : hit.atrBufferUsed
+        ? "≥ res"
+        : "> res";
   return {
     moduleId,
     venue: "crypto",
